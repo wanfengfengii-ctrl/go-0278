@@ -80,12 +80,12 @@ func insertInstrumentCall(ctx context.Context, tx *sql.Tx, c domain.InstrumentCa
 	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO instrument_calls
-			(call_key, task_id, sample_id, generation, load_level, device_no, seq,
+			(call_key, task_id, test_id, sample_id, generation, load_level, device_no, seq,
 			 result, retry_count, next_retry_at, evidence_ref, request_digest,
 			 stage, load, displacement, hold_secs, rebound, device_puller,
 			 device_pump, device_disp)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.CallKey, c.TaskID, c.SampleID, c.Generation, c.LoadLevel, c.DeviceNo,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.CallKey, c.TaskID, c.TestID, c.SampleID, c.Generation, c.LoadLevel, c.DeviceNo,
 		c.Seq, string(c.Result), c.RetryCount, int64(c.NextRetryAt), evRef,
 		c.RequestDigest, string(c.Stage), c.Load, c.Displacement, c.HoldSecs,
 		c.Rebound, c.DeviceSet[0], c.DeviceSet[1], c.DeviceSet[2])
@@ -136,7 +136,7 @@ func (s *Store) ListEvidence(ctx context.Context, taskID string) ([]EvidenceRow,
 // service replays the pending queue deterministically after a crash.
 func (s *Store) ListPendingInstrumentCalls(ctx context.Context) ([]domain.InstrumentCall, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT call_key, task_id, sample_id, generation, load_level, device_no, seq,
+		SELECT call_key, task_id, test_id, sample_id, generation, load_level, device_no, seq,
 		       result, retry_count, next_retry_at, evidence_ref, request_digest,
 		       stage, load, displacement, hold_secs, rebound, device_puller,
 		       device_pump, device_disp
@@ -159,7 +159,7 @@ func (s *Store) ListPendingInstrumentCalls(ctx context.Context) ([]domain.Instru
 // GetInstrumentCall loads a single instrument call by its deterministic key.
 func (s *Store) GetInstrumentCall(ctx context.Context, callKey string) (*domain.InstrumentCall, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT call_key, task_id, sample_id, generation, load_level, device_no, seq,
+		SELECT call_key, task_id, test_id, sample_id, generation, load_level, device_no, seq,
 		       result, retry_count, next_retry_at, evidence_ref, request_digest,
 		       stage, load, displacement, hold_secs, rebound, device_puller,
 		       device_pump, device_disp
@@ -174,7 +174,7 @@ func (s *Store) GetInstrumentCall(ctx context.Context, callKey string) (*domain.
 func scanInstrumentCall(scan interface{ Scan(...any) error }) (domain.InstrumentCall, error) {
 	var c domain.InstrumentCall
 	var evRef sql.NullInt64
-	err := scan.Scan(&c.CallKey, &c.TaskID, &c.SampleID, &c.Generation, &c.LoadLevel,
+	err := scan.Scan(&c.CallKey, &c.TaskID, &c.TestID, &c.SampleID, &c.Generation, &c.LoadLevel,
 		&c.DeviceNo, &c.Seq, &c.Result, &c.RetryCount, &c.NextRetryAt, &evRef,
 		&c.RequestDigest, &c.Stage, &c.Load, &c.Displacement, &c.HoldSecs,
 		&c.Rebound, &c.DeviceSet[0], &c.DeviceSet[1], &c.DeviceSet[2])

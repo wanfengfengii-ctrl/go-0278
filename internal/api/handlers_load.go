@@ -15,6 +15,7 @@ func (s *Server) handleReading(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := s.svc.SubmitReading(r.Context(), req.OperationID, service.ReadingInput{
+		TestID:             r.PathValue("id"),
 		TaskID:             req.TaskID,
 		SampleID:           req.SampleID,
 		Stage:              domain.LoadStage(req.Stage),

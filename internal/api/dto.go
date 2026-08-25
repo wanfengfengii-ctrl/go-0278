@@ -117,6 +117,7 @@ type releaseLeaseRequest struct {
 // readingRequest is a single bolt reading submission.
 type readingRequest struct {
 	OperationID        string `json:"operation_id"`
+	TestID             string `json:"test_id"`
 	TaskID             string `json:"task_id"`
 	SampleID           string `json:"sample_id"`
 	Stage              string `json:"stage"`

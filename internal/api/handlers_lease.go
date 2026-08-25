@@ -14,8 +14,14 @@ func (s *Server) handleAcquireLeases(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", req.OperationID, 0, nil)
 		return
 	}
+	// The path-identified test is the canonical lease owner; the body test_id is
+	// accepted only when the path carries none (kept for backward compatibility).
+	testID := r.PathValue("id")
+	if testID == "" {
+		testID = req.TestID
+	}
 	t, err := s.svc.AcquireLeases(r.Context(), req.OperationID, service.LeaseInput{
-		TestID:       req.TestID,
+		TestID:       testID,
 		TaskID:       req.TaskID,
 		Generation:   req.Generation,
 		Puller:       req.Puller,

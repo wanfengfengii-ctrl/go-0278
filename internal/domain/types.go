@@ -142,6 +142,7 @@ const (
 type InstrumentCall struct {
 	CallKey       string
 	TaskID        string
+	TestID        string
 	SampleID      string
 	Generation    int
 	LoadLevel     int

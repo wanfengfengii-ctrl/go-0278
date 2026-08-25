@@ -10,6 +10,7 @@ import (
 
 // ReadingInput is a single reading submission for one bolt.
 type ReadingInput struct {
+	TestID             string
 	TaskID             string
 	SampleID           string
 	Stage              domain.LoadStage
@@ -42,7 +43,7 @@ func (s *Service) SubmitReading(ctx context.Context, opID string, in ReadingInpu
 		return nil, err
 	}
 	devices := [3]string{in.DevicePuller, in.DevicePump, in.DeviceDisplacement}
-	if err := s.validateActiveLease(ctx, t, devices); err != nil {
+	if err := s.validateActiveLease(ctx, t, in.TestID, devices); err != nil {
 		return nil, err
 	}
 
@@ -121,7 +122,7 @@ func (s *Service) RetryCall(ctx context.Context, opID, callKey string) (*Reading
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateActiveLease(ctx, t, call.DeviceSet); err != nil {
+	if err := s.validateActiveLease(ctx, t, call.TestID, call.DeviceSet); err != nil {
 		return nil, err
 	}
 
@@ -199,7 +200,16 @@ func (s *Service) loadTaskAndSample(ctx context.Context, taskID, sampleID string
 	return nil, store.SampleNode{}, ErrTaskNotFound
 }
 
-func (s *Service) validateActiveLease(ctx context.Context, t *domain.InspectionTask, devices [3]string) error {
+func (s *Service) validateActiveLease(ctx context.Context, t *domain.InspectionTask, testID string, devices [3]string) error {
+	// A lease belongs to the test that acquired it (device_leases.test_id), and
+	// a reading is submitted against that same test. The reading path carries
+	// the test id; callers that omit it (e.g. in-process retries whose
+	// persisted call record predates the test_id) fall back to the owning task
+	// id, which is how leases were acquired when test and task share an id.
+	leaseTestID := testID
+	if leaseTestID == "" {
+		leaseTestID = t.ID
+	}
 	now := s.Now()
 	for _, d := range devices {
 		leases, err := s.store.ActiveLeasesForDevice(ctx, d)
@@ -208,7 +218,7 @@ func (s *Service) validateActiveLease(ctx context.Context, t *domain.InspectionT
 		}
 		ok := false
 		for _, l := range leases {
-			if l.TestID == t.ID && l.Generation == t.Generation &&
+			if l.TestID == leaseTestID && l.Generation == t.Generation &&
 				l.Start <= now && now < l.End {
 				ok = true
 				break
@@ -263,7 +273,7 @@ func failedCall(key string, in ReadingInput, generation int, result domain.CallR
 
 func baseCall(key string, in ReadingInput, generation int, devices [3]string) domain.InstrumentCall {
 	return domain.InstrumentCall{
-		CallKey: key, TaskID: in.TaskID, SampleID: in.SampleID,
+		CallKey: key, TaskID: in.TaskID, TestID: in.TestID, SampleID: in.SampleID,
 		Generation: generation, LoadLevel: in.LoadLevel, DeviceNo: in.DevicePuller, Seq: 0,
 		RequestDigest: domain.Digest(in), Stage: in.Stage, Load: in.Load,
 		Displacement: in.Displacement, HoldSecs: in.HoldSecs, Rebound: in.Rebound,

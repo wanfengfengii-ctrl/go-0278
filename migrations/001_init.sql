@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS load_evidence (
 CREATE TABLE IF NOT EXISTS instrument_calls (
     call_key       TEXT PRIMARY KEY,
     task_id        TEXT    NOT NULL,
+    test_id        TEXT    NOT NULL DEFAULT '',
     sample_id      TEXT    NOT NULL,
     generation     INTEGER NOT NULL,
     load_level     INTEGER NOT NULL,
