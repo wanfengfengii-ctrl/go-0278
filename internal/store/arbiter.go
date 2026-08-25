@@ -63,23 +63,28 @@ func (s *Store) MarkExpansionIncomplete(ctx context.Context, opID, taskID, reque
 // advances the task from expanding to pending_reinforce. The new generation is
 // not created until CreateRetestGeneration runs, keeping reinforcement and
 // retest as separate, independently idempotent steps.
+//
+// The reinforcement row is written inside the same transaction as the
+// idempotency check and the status transition, after checkOperation has ruled
+// out a conflict or replay. This ensures a rejected reinforcement (mismatched
+// operation id) cannot leave a dangling row that would block a later, lawful
+// retry of the same reinforcement under a fresh operation id.
 func (s *Store) SealReinforcement(ctx context.Context, opID, taskID, requestDigest string, influenceDigest, reinforceDigest, reason string, prevGen int, at domain.LogicalTime, expectedVersion int64) (*domain.InspectionTask, error) {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO reinforcements
-			(task_id, influence_digest, reinforce_digest, prev_generation,
-			 new_generation, reason, effective_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		taskID, influenceDigest, reinforceDigest, prevGen, prevGen+1, reason, int64(at))
-	if err != nil {
-		return nil, mapConstraint(err)
-	}
-	err = s.tx(ctx, func(tx *sql.Tx) error {
+	err := s.tx(ctx, func(tx *sql.Tx) error {
 		done, err := checkOperation(ctx, tx, opID, requestDigest)
 		if err != nil {
 			return err
 		}
 		if done {
 			return ErrReplay
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reinforcements
+				(task_id, influence_digest, reinforce_digest, prev_generation,
+				 new_generation, reason, effective_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			taskID, influenceDigest, reinforceDigest, prevGen, prevGen+1, reason, int64(at)); err != nil {
+			return err
 		}
 		if err := s.bumpStatus(ctx, tx, taskID, domain.StatusExpanding, domain.StatusPendingReinforce, expectedVersion); err != nil {
 			return err
