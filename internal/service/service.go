@@ -80,6 +80,7 @@ var (
 	ErrBoundaryMissing   = errors.New("service: influence boundary incomplete")
 	ErrNotQualified      = errors.New("service: reviewer not qualified")
 	ErrSamplesOpen       = errors.New("service: samples not closed")
+	ErrDeviceInvalid     = errors.New("service: device not registered or type mismatch")
 )
 
 // IsNotFound reports whether err indicates a missing entity.

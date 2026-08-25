@@ -28,6 +28,20 @@ func (s *Store) EnsureDevices(ctx context.Context, devices []domain.Device) erro
 	})
 }
 
+// GetDevice loads one device from the catalog by its number, returning
+// ErrNotFound when the number is not registered. Lease acquisition consults it
+// so that an unregistered or wrongly typed device number can never form a lease.
+func (s *Store) GetDevice(ctx context.Context, deviceNo string) (*domain.Device, error) {
+	var d domain.Device
+	err := s.db.QueryRowContext(ctx,
+		`SELECT device_no, device_type, state, calib_ver FROM devices WHERE device_no = ?`,
+		deviceNo).Scan(&d.Number, &d.Type, &d.State, &d.CalibVer)
+	if err != nil {
+		return nil, requireFound(err)
+	}
+	return &d, nil
+}
+
 // AcquireLeases atomically acquires a full device combination (one puller, one
 // pump, one displacement) for a test. Every device in the combination must be
 // free of any overlapping lease within the same transaction, otherwise the whole

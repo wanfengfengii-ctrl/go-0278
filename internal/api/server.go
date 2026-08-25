@@ -94,6 +94,8 @@ func mapError(err error) (string, int) {
 		return "not_qualified", http.StatusConflict
 	case err == service.ErrSamplesOpen:
 		return "samples_open", http.StatusConflict
+	case err == service.ErrDeviceInvalid:
+		return "device_invalid", http.StatusUnprocessableEntity
 	default:
 		return "internal_error", http.StatusInternalServerError
 	}
