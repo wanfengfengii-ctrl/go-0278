@@ -134,13 +134,33 @@ func (s *Store) ListEvidence(ctx context.Context, taskID string) ([]EvidenceRow,
 // ListPendingInstrumentCalls returns instrument calls that still require a
 // retry (their result was not accepted). This powers restart recovery: the
 // service replays the pending queue deterministically after a crash.
+//
+// A retry advances the call sequence, producing a new call row with a greater
+// seq for the same logical reading (task, sample, generation, load level,
+// device and stage); the predecessor row is kept immutable as an audit record
+// but is no longer pending. To honour that, only the latest non-accepted call
+// of each retry chain is returned: a failed call that has been superseded by a
+// later call (a successful retry, or a further-failed retry) is excluded, so
+// the same reading is never re-scheduled after it has already been retried.
 func (s *Store) ListPendingInstrumentCalls(ctx context.Context) ([]domain.InstrumentCall, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT call_key, task_id, sample_id, generation, load_level, device_no, seq,
-		       result, retry_count, next_retry_at, evidence_ref, request_digest,
-		       stage, load, displacement, hold_secs, rebound, device_puller,
-		       device_pump, device_disp
-		FROM instrument_calls WHERE result <> 'accepted' ORDER BY call_key`)
+		SELECT c.call_key, c.task_id, c.sample_id, c.generation, c.load_level, c.device_no, c.seq,
+		       c.result, c.retry_count, c.next_retry_at, c.evidence_ref, c.request_digest,
+		       c.stage, c.load, c.displacement, c.hold_secs, c.rebound, c.device_puller,
+		       c.device_pump, c.device_disp
+		FROM instrument_calls AS c
+		WHERE c.result <> 'accepted'
+		  AND NOT EXISTS (
+			SELECT 1 FROM instrument_calls AS c2
+			WHERE c2.task_id = c.task_id
+			  AND c2.sample_id = c.sample_id
+			  AND c2.generation = c.generation
+			  AND c2.load_level = c.load_level
+			  AND c2.device_no = c.device_no
+			  AND c2.stage = c.stage
+			  AND c2.seq > c.seq
+		  )
+		ORDER BY c.call_key`)
 	if err != nil {
 		return nil, err
 	}
