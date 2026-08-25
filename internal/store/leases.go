@@ -31,8 +31,13 @@ func (s *Store) EnsureDevices(ctx context.Context, devices []domain.Device) erro
 // AcquireLeases atomically acquires a full device combination (one puller, one
 // pump, one displacement) for a test. Every device in the combination must be
 // free of any overlapping lease within the same transaction, otherwise the whole
-// acquisition fails and no partial lease is left behind. On success the task
-// advances from hole_verification to loading.
+// acquisition fails and no partial lease is left behind.
+//
+// For the original generation (task in hole_verification) the acquisition also
+// confirms every leaf sample is verified and advances the task to loading. For a
+// retest generation (task in retesting) no hole verification or status advance
+// happens: retest samples are clones of already-verified holes and retest
+// readings are accepted while the task stays in retesting.
 func (s *Store) AcquireLeases(ctx context.Context, opID, taskID, requestDigest string, leases []domain.DeviceLease, expectedVersion int64) (*domain.InspectionTask, error) {
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		done, err := checkOperation(ctx, tx, opID, requestDigest)
@@ -42,12 +47,23 @@ func (s *Store) AcquireLeases(ctx context.Context, opID, taskID, requestDigest s
 		if done {
 			return ErrReplay
 		}
-		all, err := allLeavesVerified(ctx, tx, taskID)
+		from, to, transition := domain.StatusHoleVerification, domain.StatusLoading, true
+		cur, err := currentStatus(ctx, tx, taskID, expectedVersion)
 		if err != nil {
 			return err
 		}
-		if !all {
-			return ErrConflict
+		if cur == string(domain.StatusRetesting) {
+			// Retest generation: clones of verified holes need no re-verification,
+			// and the task stays in retesting throughout the retest load.
+			transition = false
+		} else {
+			all, err := allLeavesVerified(ctx, tx, taskID)
+			if err != nil {
+				return err
+			}
+			if !all {
+				return ErrConflict
+			}
 		}
 		for _, l := range leases {
 			if overlap, err := deviceOverlaps(ctx, tx, l.DeviceNo, int64(l.Start), int64(l.End)); err != nil {
@@ -65,8 +81,10 @@ func (s *Store) AcquireLeases(ctx context.Context, opID, taskID, requestDigest s
 				return err
 			}
 		}
-		if err := s.bumpStatus(ctx, tx, taskID, domain.StatusHoleVerification, domain.StatusLoading, expectedVersion); err != nil {
-			return err
+		if transition {
+			if err := s.bumpStatus(ctx, tx, taskID, from, to, expectedVersion); err != nil {
+				return err
+			}
 		}
 		return recordOperation(ctx, tx, opID, taskID, "acquire_leases", requestDigest, "acquired", requestDigest, expectedVersion+1)
 	})

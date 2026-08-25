@@ -23,14 +23,18 @@ type LeaseInput struct {
 
 // AcquireLeases atomically acquires the puller, pump and displacement leases for
 // a test. All three must be free of overlap within the same logical window, or
-// none is acquired. On success the task advances from hole_verification to
-// loading.
+// none is acquired. For the original generation the task advances from
+// hole_verification to loading; for a retest generation the task is already in
+// retesting and stays there, since retest samples are clones of already-verified
+// holes and retest readings are accepted in the retesting state.
 func (s *Service) AcquireLeases(ctx context.Context, opID string, in LeaseInput) (*domain.InspectionTask, error) {
 	t, err := s.GetTask(ctx, in.TaskID)
 	if err != nil {
 		return nil, err
 	}
-	if t.Status != domain.StatusHoleVerification {
+	switch t.Status {
+	case domain.StatusHoleVerification, domain.StatusRetesting:
+	default:
 		return nil, ErrInvalidTransition
 	}
 	if in.Generation != t.Generation {

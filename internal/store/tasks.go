@@ -184,3 +184,20 @@ func (s *Store) bumpStatus(ctx context.Context, tx *sql.Tx, id string, from doma
 	}
 	return nil
 }
+
+// currentStatus reads the status of a task at a given expected version, returning
+// ErrConflict when the version no longer matches. It lets a mutating
+// transaction branch on the live status without re-reading through GetTask.
+func currentStatus(ctx context.Context, tx *sql.Tx, id string, expectedVersion int64) (string, error) {
+	var status string
+	err := tx.QueryRowContext(ctx,
+		`SELECT status FROM inspection_tasks WHERE id = ? AND version = ?`,
+		id, expectedVersion).Scan(&status)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", ErrConflict
+		}
+		return "", err
+	}
+	return status, nil
+}
