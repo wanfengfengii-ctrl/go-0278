@@ -69,6 +69,37 @@ func (s *Service) SubmitReading(ctx context.Context, opID string, in ReadingInpu
 
 	kind := evidenceKind(sample.Category)
 	callKey := callKey(in.TaskID, in.SampleID, t.Generation, in.LoadLevel, in.DevicePuller, string(in.Stage), 0)
+
+	// Arbitrate on the content-derived call_key before commanding the device.
+	// Two field terminals may submit identical readings under distinct
+	// operation_ids; only the call_key is shared. Holding a per-call_key mutex
+	// across the instrument invocation and its commit guarantees that the
+	// duplicate observes the first submission's committed call and returns a
+	// conflict, instead of re-triggering the puller and then losing the
+	// operation_records race.
+	mu := s.lockCallKey(callKey)
+	mu.Lock()
+	defer mu.Unlock()
+
+	exists, err := s.store.CallKeyExists(ctx, callKey)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		// The same content-derived call has already been committed. If the
+		// caller is replaying the exact same operation, surface a replay so the
+		// API layer returns the original accepted result; otherwise this is a
+		// concurrent duplicate under a different operation_id and must be
+		// rejected as a conflict without ever commanding the device.
+		if opID != "" {
+			if existing, err := s.store.GetOperation(ctx, opID); err == nil &&
+				existing.RequestDigest == domain.Digest(in) {
+				return nil, store.ErrReplay
+			}
+		}
+		return nil, store.ErrDuplicate
+	}
+
 	req := domain.InstrumentRequest{CallKey: callKey, DeviceNo: in.DevicePuller, Stage: in.Stage, LoadLevel: in.LoadLevel}
 	res, _ := s.inst.Call(ctx, req)
 

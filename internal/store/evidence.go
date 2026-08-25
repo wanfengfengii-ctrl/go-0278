@@ -171,6 +171,25 @@ func (s *Store) GetInstrumentCall(ctx context.Context, callKey string) (*domain.
 	return &c, nil
 }
 
+// CallKeyExists reports whether an instrument invocation has already been
+// committed for the given content-derived call_key. It powers pre-command
+// arbitration: when two field terminals submit identical readings under
+// distinct operation_ids, only the call_key is the same, so this check lets the
+// second submission discover the first's committed call and return a conflict
+// without re-triggering the puller.
+func (s *Store) CallKeyExists(ctx context.Context, callKey string) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT 1 FROM instrument_calls WHERE call_key = ?`, callKey).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func scanInstrumentCall(scan interface{ Scan(...any) error }) (domain.InstrumentCall, error) {
 	var c domain.InstrumentCall
 	var evRef sql.NullInt64

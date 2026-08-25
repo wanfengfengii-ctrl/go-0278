@@ -7,6 +7,7 @@ package service
 
 import (
 	"errors"
+	"sync"
 	"sync/atomic"
 
 	"rockbolt-pullout-zonal-closure/internal/domain"
@@ -20,6 +21,14 @@ type Service struct {
 	inst  domain.InstrumentPort
 	clock *logicalClock
 	seq   atomic.Uint64
+
+	// callMu serializes concurrent submissions that resolve to the same
+	// content-derived call_key. It guarantees the instrument is invoked at most
+	// once per call_key even when two field terminals submit identical readings
+	// under distinct operation_ids: the second waits for the first to finish, then
+	// observes the committed call and returns a conflict without re-triggering
+	// the puller. Arbitration therefore completes before the device is commanded.
+	callMu sync.Map // callKey -> *sync.Mutex
 }
 
 // New creates a Service over the given store. The instrument port defaults to a
@@ -30,6 +39,17 @@ func New(st *store.Store) *Service {
 		inst:  instrument.NewAdapter(0),
 		clock: newLogicalClock(),
 	}
+}
+
+// lockCallKey returns a mutex dedicated to one content-derived call_key. It
+// serializes concurrent submissions that resolve to the same call_key so that
+// arbitration (the existence check against instrument_calls) completes before
+// the device is commanded: a duplicate waits for the first to finish, observes
+// the committed call, and returns a conflict instead of re-triggering the
+// puller.
+func (s *Service) lockCallKey(callKey string) *sync.Mutex {
+	actual, _ := s.callMu.LoadOrStore(callKey, &sync.Mutex{})
+	return actual.(*sync.Mutex)
 }
 
 // SetInstrument replaces the instrument port, used by tests to inject scripted
