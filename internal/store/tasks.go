@@ -9,9 +9,12 @@ import (
 )
 
 // CreateTask inserts a new pending-lock task. It fails with ErrDuplicate when
-// the task id already exists.
+// the task id already exists. The caller's context is honored verbatim so that
+// a cancelled create request (client disconnect) aborts the insert and the
+// transaction rolls back; stripping it to context.Background would let the
+// INSERT commit after the client has gone, leaving a persisted task the caller
+// never saw created.
 func (s *Store) CreateTask(ctx context.Context, t *domain.InspectionTask) error {
-	ctx = context.Background()
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO inspection_tasks
