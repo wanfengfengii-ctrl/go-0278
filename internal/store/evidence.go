@@ -34,16 +34,45 @@ func (s *Store) CommitReading(ctx context.Context, opID, taskID, requestDigest s
 			if err := insertEvidence(ctx, tx, *evidence); err != nil {
 				return err
 			}
+			nextStatus := ""
 			if closeSampleID != "" {
 				if _, err := tx.ExecContext(ctx, `
 					UPDATE sample_nodes SET closed = 1
 					WHERE id = ? AND task_id = ? AND hole_no IS NOT NULL`, closeSampleID, taskID); err != nil {
 					return err
 				}
+				// A closing reading may exhaust the last open sample of the
+				// current generation. When that happens a fully qualified batch
+				// must advance to pending review so it can be sealed; otherwise
+				// the task is stranded in loading and review/finalize are
+				// rejected as invalid transitions. Readings are only accepted
+				// from loading, expanding or retesting, each of which may
+				// legally move to pending review. Old-generation leaves are
+				// excluded so late audit evidence cannot block the transition.
+				var remaining int
+				if err := tx.QueryRowContext(ctx, `
+					SELECT COUNT(*) FROM sample_nodes
+					WHERE task_id = ? AND generation = ? AND hole_no IS NOT NULL AND closed = 0`,
+					taskID, evidence.Generation).Scan(&remaining); err != nil {
+					return err
+				}
+				if remaining == 0 {
+					nextStatus = string(domain.StatusPendingReview)
+				}
 			}
-			res, err := tx.ExecContext(ctx, `
-				UPDATE inspection_tasks SET version = version + 1
-				WHERE id = ? AND version = ?`, taskID, expectedVersion)
+			var res sql.Result
+			var err error
+			if nextStatus != "" {
+				res, err = tx.ExecContext(ctx, `
+					UPDATE inspection_tasks SET status = ?, version = version + 1
+					WHERE id = ? AND version = ? AND status IN (?, ?, ?)`,
+					nextStatus, taskID, expectedVersion,
+					string(domain.StatusLoading), string(domain.StatusExpanding), string(domain.StatusRetesting))
+			} else {
+				res, err = tx.ExecContext(ctx, `
+					UPDATE inspection_tasks SET version = version + 1
+					WHERE id = ? AND version = ?`, taskID, expectedVersion)
+			}
 			if err != nil {
 				return err
 			}
