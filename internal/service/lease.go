@@ -39,6 +39,12 @@ func (s *Service) AcquireLeases(ctx context.Context, opID string, in LeaseInput)
 	if !lease.Valid(int64(in.Start), int64(in.End)) {
 		return nil, ErrLeaseConflict
 	}
+	// The three rig roles must be filled by distinct physical devices; reusing
+	// one device number for two roles is an invalid combination that must fail
+	// as a whole rather than producing a partial lease set.
+	if in.Puller == in.Pump || in.Puller == in.Displacement || in.Pump == in.Displacement {
+		return nil, ErrLeaseConflict
+	}
 	leases := []domain.DeviceLease{
 		leaseOf(in.TestID, in.Puller, domain.DevicePuller, in.Generation, in.Start, in.End),
 		leaseOf(in.TestID, in.Pump, domain.DevicePump, in.Generation, in.Start, in.End),

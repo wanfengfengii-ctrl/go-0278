@@ -62,7 +62,12 @@ func (s *Store) AcquireLeases(ctx context.Context, opID, taskID, requestDigest s
 				VALUES (?, ?, ?, ?, ?, ?, 0)`,
 				l.ID, l.DeviceNo, l.TestID, l.Generation, int64(l.Start), int64(l.End))
 			if err != nil {
-				continue
+				// A failed insert means an invalid device combination (e.g. the
+				// same device number reused across roles, which collides on the
+				// lease id) or a constraint violation. The whole acquisition
+				// must fail atomically so no partial lease set survives and the
+				// task status is left untouched.
+				return err
 			}
 		}
 		if err := s.bumpStatus(ctx, tx, taskID, domain.StatusHoleVerification, domain.StatusLoading, expectedVersion); err != nil {
